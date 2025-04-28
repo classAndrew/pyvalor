@@ -48,8 +48,31 @@ class GuildActivityTask(Task):
                 Connection.execute("DELETE FROM guild_member_cache WHERE guild='Titans Valor'")
                 Connection.execute("INSERT INTO guild_member_cache VALUES "+",".join(f"('Titans Valor','{x}')" for x in current_guild_members))
                 
+                async def get_uuid(player: str):
+                    if "-" in player: return False
+                    exist = Connection.execute(f"SELECT * FROM uuid_name WHERE name='{player}' LIMIT 1")
+                    if not exist:
+                        mojang_data = await Async.get(f"https://api.mojang.com/users/profiles/minecraft/{player}")
+                        if not "id" in mojang_data:
+                            return False
+            
+                        uuid = mojang_data["id"]
+                        uuid36 = uuid[:8]+'-'+uuid[8:12]+'-'+uuid[12:16]+'-'+uuid[16:20]+'-'+uuid[20:]
+                        Connection.execute(f"INSERT INTO uuid_name VALUES ('{uuid36}', '{player}')")
+                    else:
+                        return exist[0][0]
+                    return uuid36
+
                 online_all = await Async.get("https://api.wynncraft.com/v3/player")
                 online_all = {x for x in online_all["players"]}
+
+                async with aiohttp.ClientSession() as runner:
+                    task = [get_uuid(runner, username) for username in online_all]
+                    uuids = await asyncio.gather(*task)
+
+                for uuid in uuids:
+                    if uuid:
+                        Connection.execute("UPDATE player_stats SET lastjoin = ? WHERE uuid = ?", (now, uuid))
 
                 inserts = []
 
