@@ -293,7 +293,7 @@ class PlayerStatsTask(Task):
             # Defensive: do not let malformed/missing fields abort tracking for this player
             logger.exception(e)
 
-        character_data = stats.get("characters", {})
+        character_data = stats.get("characters") or {}
         for cl_name in character_data:
             cl = character_data[cl_name]
             cl_type = cl["type"]
