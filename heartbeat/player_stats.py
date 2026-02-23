@@ -127,18 +127,18 @@ class PlayerStatsTask(Task):
             return time.time() - (90 * 24 * 3600)
 
     @staticmethod
-    def get_last_graid_delta_timestamp(uuid):
+    def get_last_graid_delta_timestamp(uuid, raid_type):
         try:
             result = Connection.execute(
-                "SELECT MAX(time) FROM delta_graids WHERE uuid = ?", 
-                prep_values=[uuid]
+                "SELECT MAX(time) FROM delta_graids WHERE uuid = ? AND raid_type = ?", 
+                prep_values=[uuid, raid_type]
             )
             if result and result[0][0]:
                 return result[0][0]
             else:
                 return time.time() - (90 * 24 * 3600)
         except Exception as e:
-            logger.warning(f"Error getting last graid delta timestamp for {uuid}: {e}")
+            logger.warning(f"Error getting last graid delta timestamp for {uuid}, {raid_type}: {e}")
             return time.time() - (90 * 24 * 3600)
 
     @staticmethod
@@ -177,7 +177,7 @@ class PlayerStatsTask(Task):
         return smoothed_war_deltas
 
     @staticmethod
-    def create_smoothed_graid_deltas(uuid, graid_delta, now, last_timestamp):
+    def create_smoothed_graid_deltas(uuid, raid_type, graid_delta, now, last_timestamp):
         if graid_delta <= 0 or now <= last_timestamp:
             return []
         
@@ -189,7 +189,7 @@ class PlayerStatsTask(Task):
         
         smoothed_graid_deltas = []
         for i in range(num_days):
-            smoothed_graid_deltas.append((uuid, daily_graid_delta))
+            smoothed_graid_deltas.append((uuid, raid_type, daily_graid_delta))
         
         return smoothed_graid_deltas
 
@@ -214,10 +214,8 @@ class PlayerStatsTask(Task):
         
     @staticmethod 
     def append_player_global_stats(stats, old_global_data, update_player_global_stats, deltas_player_global_stats):
-        # Defensive: stats may be None or malformed; treat non-dict as empty
         if not isinstance(stats, dict):
             stats = {}
-        # old_global_data may be None; ensure it's a dict for safe .get usage
         if old_global_data is None:
             old_global_data = {}
 
@@ -325,7 +323,6 @@ class PlayerStatsTask(Task):
         try:
             PlayerStatsTask.append_player_global_stats(stats, old_global_data, update_player_global_stats, deltas_player_global_stats)
         except Exception as e:
-            # Defensive: do not let malformed/missing fields abort tracking for this player
             logger.exception(e)
 
         character_data = stats.get("characters", {})
@@ -390,29 +387,46 @@ class PlayerStatsTask(Task):
         
         #graid track
         global_data = stats.get("globalData", {}) or {}
-        graidcount = PlayerStatsTask.null_or_value(global_data.get("guildRaids", 0))
-        if graidcount > 0:
-            if uuid in prev_graidcounts:
-                old_graidcount = prev_graidcounts[uuid]
-                if graidcount != old_graidcount:
-                    graid_delta = graidcount - old_graidcount
+        graids = global_data.get("guildRaids", {}) or {}
+        
+        raid_columns = {
+            "The Canyon Colossus": "tcc",
+            "Orphion's Nexus of Light": "onol",
+            "Nest of the Grootslangs": "notg",
+            "The Nameless Anomaly": "tna"
+        }
+        
+        raid_update_row = [uuid]
+        has_new_raid_data = False
+        
+        for raid_name, column_name in raid_columns.items():
+            raid_count = PlayerStatsTask.null_or_value(graids.get(raid_name, 0))
+            
+            if uuid in prev_graidcounts and raid_name in prev_graidcounts[uuid]:
+                old_raid_count = prev_graidcounts[uuid][raid_name]
+                if raid_count != old_raid_count:
+                    raid_delta = raid_count - old_raid_count
                     curr_time = time.time()
                     
-                    if graid_delta >= PlayerStatsTask.warsmooththresh:
-                        last_timestamp = PlayerStatsTask.get_last_graid_delta_timestamp(uuid)
-                        smoothed_graid_deltas = PlayerStatsTask.create_smoothed_graid_deltas(uuid, graid_delta, curr_time, last_timestamp)
+                    if raid_delta >= PlayerStatsTask.warsmooththresh:
+                        last_timestamp = PlayerStatsTask.get_last_graid_delta_timestamp(uuid, raid_name)
+                        smoothed_graid_deltas = PlayerStatsTask.create_smoothed_graid_deltas(uuid, raid_name, raid_delta, curr_time, last_timestamp)
                         inserts_graid_deltas.extend(smoothed_graid_deltas)
                     else:
-                        inserts_graid_deltas.append((uuid, graid_delta))
+                        inserts_graid_deltas.append((uuid, raid_name, raid_delta))
                     
-                    inserts_graid_update.append((uuid, graidcount))
+                    has_new_raid_data = True
             else:
-                inserts_graid_update.append((uuid, graidcount))
+                has_new_raid_data = True
+            
+            raid_update_row.append(raid_count)
+        
+        if has_new_raid_data:
+            inserts_graid_update.append(tuple(raid_update_row))
         
         inserts.append(row)
         uuid_name.append((uuid, player))
         return True
-
     @staticmethod
     async def get_stats_track_references(needs_player_list=True, force_player_list=[]):
         if needs_player_list:
@@ -458,11 +472,11 @@ class PlayerStatsTask(Task):
                 prev_warcounts[uuid] = {}
             prev_warcounts[uuid][character_id] = warcount
         
-        res = Connection.execute(f"SELECT uuid, time, graidcount FROM cumu_graids WHERE uuid IN {existing_uuids_clause}",
+        res = Connection.execute(f"SELECT uuid, time, tcc, onol, notg, tna FROM cumu_graids WHERE uuid IN {existing_uuids_clause}",
                                 prep_values=existing_player_uuids)
         prev_graidcounts = {}
-        for uuid, _, graidcount in res:
-            prev_graidcounts[uuid] = graidcount
+        for uuid, _, tcc, onol, notg, tna in res:
+            prev_graidcounts[uuid] = {"The Canyon Colossus": tcc, "Orphion's Nexus of Light": onol, "Nest of the Grootslangs": notg, "The Nameless Anomaly": tna}
         
         res = Connection.execute(f"SELECT uuid, label, value FROM player_global_stats WHERE uuid IN {existing_uuids_clause}",
                                 prep_values=existing_player_uuids)
@@ -499,10 +513,10 @@ class PlayerStatsTask(Task):
                                                                                     for uuid, character_id, warcount, cl_type in inserts_war_update)
             query_wars_delta  = "INSERT INTO delta_warcounts VALUES " + ','.join(f"(\'{uuid}\',\'{character_id}\', {curr_time}, {wardiff}, \'{cl_type}\')" 
                                                         for uuid, character_id, wardiff, cl_type in inserts_war_deltas)
-            query_graids_update  = "REPLACE INTO cumu_graids VALUES " + ','.join(f"(\'{uuid}\', {curr_time}, {graidcount})" 
-                                                                                    for uuid, graidcount in inserts_graid_update)
-            query_graids_delta  = "INSERT INTO delta_graids VALUES " + ','.join(f"(\'{uuid}\', {curr_time}, {graiddiff})" 
-                                                        for uuid, graiddiff in inserts_graid_deltas)
+            query_graids_update  = "REPLACE INTO cumu_graids VALUES " + ','.join(f"(\'{uuid}\', {curr_time}, {tcc}, {onol}, {notg}, {tna})" 
+                                                                                    for uuid, tcc, onol, notg, tna in inserts_graid_update)
+            query_graids_delta  = "INSERT INTO delta_graids VALUES " + ','.join(f"(\'{uuid}\', {curr_time}, \'{raid_type}\', {graiddiff})" 
+                                                        for uuid, raid_type, graiddiff in inserts_graid_deltas)
             query_global_delta  = "INSERT INTO player_delta_record VALUES " + ','.join(f"(\'{uuid}\',\'{guild}\', {now}, " + '"'+feat_name+'"' + f", {delta_val})" 
                                                         for uuid, guild, now, feat_name, delta_val in deltas_player_global_stats)
             query_global_update  = "REPLACE INTO player_global_stats VALUES " + ',\n'.join(f"(\'{uuid}\'," + '"'+feat_name+'"'+f", {value})" 
