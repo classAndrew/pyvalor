@@ -172,7 +172,8 @@ class PlayerStatsTask(Task):
         
         smoothed_war_deltas = []
         for i in range(num_days):
-            smoothed_war_deltas.append((uuid, character_id, daily_war_delta, cl_type))
+            ts = last_timestamp + (i + 1) * (time_span_seconds / num_days)
+            smoothed_war_deltas.append((uuid, character_id, ts, daily_war_delta, cl_type))
         
         return smoothed_war_deltas
 
@@ -344,7 +345,7 @@ class PlayerStatsTask(Task):
                             smoothed_war_deltas = PlayerStatsTask.create_smoothed_war_deltas(uuid, cl_name, cl_type, war_delta, curr_time, last_timestamp)
                             inserts_war_deltas.extend(smoothed_war_deltas)
                         else:
-                            inserts_war_deltas.append((uuid, cl_name, war_delta, cl_type))
+                            inserts_war_deltas.append((uuid, cl_name, curr_time, war_delta, cl_type))
                         
                         inserts_war_update.append((uuid, cl_name, warcount, cl_type))
                 else:
@@ -387,7 +388,7 @@ class PlayerStatsTask(Task):
         
         #graid track
         global_data = stats.get("globalData", {}) or {}
-        graids = global_data.get("guildRaids", {}) or {}
+        graids = (global_data.get("guildRaids", {}) or {}).get("list", {}) or {}
         
         raid_columns = {
             "The Canyon Colossus": "tcc",
@@ -417,7 +418,8 @@ class PlayerStatsTask(Task):
                     
                     has_new_raid_data = True
             else:
-                has_new_raid_data = True
+                if raid_count > 0:
+                    has_new_raid_data = True
             
             raid_update_row.append(raid_count)
         
@@ -511,8 +513,8 @@ class PlayerStatsTask(Task):
             query_uuid = "REPLACE INTO uuid_name VALUES " + ','.join(f"(\'{uuid}\',\'{name}\')" for uuid, name in uuid_name)
             query_wars_update  = "REPLACE INTO cumu_warcounts VALUES " + ','.join(f"(\'{uuid}\',\'{character_id}\', {curr_time}, {warcount}, \'{cl_type}\')" 
                                                                                     for uuid, character_id, warcount, cl_type in inserts_war_update)
-            query_wars_delta  = "INSERT INTO delta_warcounts VALUES " + ','.join(f"(\'{uuid}\',\'{character_id}\', {curr_time}, {wardiff}, \'{cl_type}\')" 
-                                                        for uuid, character_id, wardiff, cl_type in inserts_war_deltas)
+            query_wars_delta  = "INSERT INTO delta_warcounts VALUES " + ','.join(f"('{uuid}','{character_id}', {ts}, {wardiff}, '{cl_type}')" 
+                                                        for uuid, character_id, ts, wardiff, cl_type in inserts_war_deltas)
             query_graids_update  = "REPLACE INTO cumu_graids VALUES " + ','.join(f"(\'{uuid}\', {curr_time}, {tcc}, {onol}, {notg}, {tna})" 
                                                                                     for uuid, tcc, onol, notg, tna in inserts_graid_update)
             query_graids_delta  = "INSERT INTO delta_graids VALUES " + ','.join(f"(\'{uuid}\', {curr_time}, \'{raid_type}\', {graiddiff})" 
