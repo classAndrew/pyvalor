@@ -417,7 +417,8 @@ class PlayerStatsTask(Task):
                     
                     has_new_raid_data = True
             else:
-                has_new_raid_data = True
+                if raid_count > 0:
+                    has_new_raid_data = True
             
             raid_update_row.append(raid_count)
         
