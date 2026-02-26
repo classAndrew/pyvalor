@@ -190,7 +190,8 @@ class PlayerStatsTask(Task):
         
         smoothed_graid_deltas = []
         for i in range(num_days):
-            smoothed_graid_deltas.append((uuid, raid_type, daily_graid_delta))
+            ts = last_timestamp + (i + 1) * (time_span_seconds / num_days)
+            smoothed_graid_deltas.append((uuid, ts, raid_type, daily_graid_delta))
         
         return smoothed_graid_deltas
 
@@ -414,7 +415,7 @@ class PlayerStatsTask(Task):
                         smoothed_graid_deltas = PlayerStatsTask.create_smoothed_graid_deltas(uuid, raid_name, raid_delta, curr_time, last_timestamp)
                         inserts_graid_deltas.extend(smoothed_graid_deltas)
                     else:
-                        inserts_graid_deltas.append((uuid, raid_name, raid_delta))
+                        inserts_graid_deltas.append((uuid, curr_time, raid_name, raid_delta))
                     
                     has_new_raid_data = True
             else:
@@ -517,8 +518,8 @@ class PlayerStatsTask(Task):
                                                         for uuid, character_id, ts, wardiff, cl_type in inserts_war_deltas)
             query_graids_update  = "REPLACE INTO cumu_graids VALUES " + ','.join(f"(\'{uuid}\', {curr_time}, {tcc}, {onol}, {notg}, {tna})" 
                                                                                     for uuid, tcc, onol, notg, tna in inserts_graid_update)
-            query_graids_delta  = "INSERT INTO delta_graids VALUES " + ','.join(f"(\'{uuid}\', {curr_time}, \'{raid_type}\', {graiddiff})" 
-                                                        for uuid, raid_type, graiddiff in inserts_graid_deltas)
+            query_graids_delta  = "INSERT INTO delta_graids VALUES " + ','.join(f"(\'{uuid}\', {ts}, \'{raid_type}\', {graiddiff})" 
+                                                        for uuid, ts, raid_type, graiddiff in inserts_graid_deltas)
             query_global_delta  = "INSERT INTO player_delta_record VALUES " + ','.join(f"(\'{uuid}\',\'{guild}\', {now}, " + '"'+feat_name+'"' + f", {delta_val})" 
                                                         for uuid, guild, now, feat_name, delta_val in deltas_player_global_stats)
             query_global_update  = "REPLACE INTO player_global_stats VALUES " + ',\n'.join(f"(\'{uuid}\'," + '"'+feat_name+'"'+f", {value})" 
