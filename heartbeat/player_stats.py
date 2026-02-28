@@ -147,7 +147,10 @@ class PlayerStatsTask(Task):
             return []
         
         time_span_seconds = now - last_timestamp
-        time_span_days = max(1, time_span_seconds / (24 * 3600))
+        time_span_days = time_span_seconds / (24 * 3600)
+        
+        if time_span_days < 1:
+            return []
         
         num_days = min(int(time_span_days), 90)
         daily_delta = delta_val / num_days
@@ -165,7 +168,10 @@ class PlayerStatsTask(Task):
             return []
         
         time_span_seconds = now - last_timestamp
-        time_span_days = max(1, time_span_seconds / (24 * 3600))
+        time_span_days = time_span_seconds / (24 * 3600)
+        
+        if time_span_days < 1:
+            return []
         
         num_days = min(int(time_span_days), 90) #3mo max, idk could go longer but idt itll matter
         daily_war_delta = war_delta / num_days
@@ -183,7 +189,10 @@ class PlayerStatsTask(Task):
             return []
         
         time_span_seconds = now - last_timestamp
-        time_span_days = max(1, time_span_seconds / (24 * 3600))
+        time_span_days = time_span_seconds / (24 * 3600)
+        
+        if time_span_days < 1:
+            return []
         
         num_days = min(int(time_span_days), 90)
         daily_graid_delta = graid_delta / num_days
@@ -529,7 +538,7 @@ class PlayerStatsTask(Task):
             Connection.execute(query_graids_update)
 
         if inserts_graid_deltas:
-            query_graids_delta  = "INSERT INTO delta_graids VALUES " + ','.join(f"(\'{uuid}\', {ts}, \'{raid_type}\', {graiddiff})" 
+            query_graids_delta  = "INSERT INTO delta_graids VALUES " + ','.join(f"(\'{uuid}\', {ts}, " + '"'+raid_type+'"' + f", {graiddiff})" 
                                                         for uuid, ts, raid_type, graiddiff in inserts_graid_deltas)
             Connection.execute(query_graids_delta)
 
@@ -599,7 +608,17 @@ class PlayerStatsTask(Task):
                     except Exception as e:
                         logger.info(f"PLAYER STATS TASK ERROR")
                         logger.exception(e)
+                        inserts_war_update, inserts_war_deltas, inserts_graid_update, inserts_graid_deltas, inserts_guild_log, inserts, uuid_name, update_player_global_stats, deltas_player_global_stats = PlayerStatsTask.get_empty_stats_track_buffers()
                         print(f"PLAYER IS {search_players[player_idx]}")
+                        inserts_war_update.clear()
+                        inserts_war_deltas.clear()
+                        inserts_graid_update.clear()
+                        inserts_graid_deltas.clear()
+                        inserts_guild_log.clear()
+                        inserts.clear()
+                        uuid_name.clear()
+                        update_player_global_stats.clear()
+                        deltas_player_global_stats.clear()
                     
                     player_idx += 1
 
