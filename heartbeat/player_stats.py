@@ -184,7 +184,7 @@ class PlayerStatsTask(Task):
         return smoothed_war_deltas
 
     @staticmethod
-    def create_smoothed_graid_deltas(uuid, raid_type, graid_delta, now, last_timestamp):
+    def create_smoothed_graid_deltas(uuid, guild, raid_type, graid_delta, now, last_timestamp):
         if graid_delta <= 0 or now <= last_timestamp:
             return []
         
@@ -200,7 +200,7 @@ class PlayerStatsTask(Task):
         smoothed_graid_deltas = []
         for i in range(num_days):
             ts = last_timestamp + (i + 1) * (time_span_seconds / num_days)
-            smoothed_graid_deltas.append((uuid, ts, raid_type, daily_graid_delta))
+            smoothed_graid_deltas.append((uuid, guild, ts, raid_type, daily_graid_delta))
         
         return smoothed_graid_deltas
 
@@ -421,10 +421,10 @@ class PlayerStatsTask(Task):
                     
                     if raid_delta >= PlayerStatsTask.warsmooththresh:
                         last_timestamp = PlayerStatsTask.get_last_graid_delta_timestamp(uuid, raid_name)
-                        smoothed_graid_deltas = PlayerStatsTask.create_smoothed_graid_deltas(uuid, raid_name, raid_delta, curr_time, last_timestamp)
+                        smoothed_graid_deltas = PlayerStatsTask.create_smoothed_graid_deltas(uuid, guild, raid_name, raid_delta, curr_time, last_timestamp)
                         inserts_graid_deltas.extend(smoothed_graid_deltas)
                     else:
-                        inserts_graid_deltas.append((uuid, curr_time, raid_name, raid_delta))
+                        inserts_graid_deltas.append((uuid, guild, curr_time, raid_name, raid_delta))
                     
                     has_new_raid_data = True
             else:
@@ -433,7 +433,8 @@ class PlayerStatsTask(Task):
             
             raid_update_row.append(raid_count)
         
-        if has_new_raid_data:
+        if has_new_raid_data or guild != old_guild:
+            raid_update_row.append(guild)
             inserts_graid_update.append(tuple(raid_update_row))
         
         inserts.append(row)
@@ -484,10 +485,10 @@ class PlayerStatsTask(Task):
                 prev_warcounts[uuid] = {}
             prev_warcounts[uuid][character_id] = warcount
         
-        res = Connection.execute(f"SELECT uuid, time, tcc, onol, notg, tna FROM cumu_graids WHERE uuid IN {existing_uuids_clause}",
+        res = Connection.execute(f"SELECT uuid, time, tcc, onol, notg, tna, guild FROM cumu_graids WHERE uuid IN {existing_uuids_clause}",
                                 prep_values=existing_player_uuids)
         prev_graidcounts = {}
-        for uuid, _, tcc, onol, notg, tna in res:
+        for uuid, _, tcc, onol, notg, tna, _ in res:
             prev_graidcounts[uuid] = {"The Canyon Colossus": tcc, "Orphion's Nexus of Light": onol, "Nest of the Grootslangs": notg, "The Nameless Anomaly": tna}
         
         res = Connection.execute(f"SELECT uuid, label, value FROM player_global_stats WHERE uuid IN {existing_uuids_clause}",
@@ -533,13 +534,13 @@ class PlayerStatsTask(Task):
             Connection.execute(query_wars_delta)
 
         if inserts_graid_update:
-            query_graids_update  = "REPLACE INTO cumu_graids VALUES " + ','.join(f"(\'{uuid}\', {curr_time}, {tcc}, {onol}, {notg}, {tna})" 
-                                                                                    for uuid, tcc, onol, notg, tna in inserts_graid_update)
+            query_graids_update  = "REPLACE INTO cumu_graids VALUES " + ','.join(f"(\'{uuid}\', {curr_time}, {tcc}, {onol}, {notg}, {tna}, \'{guild}\')" 
+                                                                                    for uuid, tcc, onol, notg, tna, guild in inserts_graid_update)
             Connection.execute(query_graids_update)
 
         if inserts_graid_deltas:
-            query_graids_delta  = "INSERT INTO delta_graids VALUES " + ','.join(f"(\'{uuid}\', {ts}, " + '"'+raid_type+'"' + f", {graiddiff})" 
-                                                        for uuid, ts, raid_type, graiddiff in inserts_graid_deltas)
+            query_graids_delta  = "INSERT INTO delta_graids VALUES " + ','.join(f"(\'{uuid}\', {ts}, " + '"'+raid_type+'"' + f", {graiddiff}, \'{guild}\')" 
+                                                        for uuid, guild, ts, raid_type, graiddiff in inserts_graid_deltas)
             Connection.execute(query_graids_delta)
 
         if update_player_global_stats:
