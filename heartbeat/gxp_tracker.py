@@ -10,7 +10,7 @@ import math
 from log import logger
 import math
 
-EXCEPTIONS = ["Titans Valor", "The Aquarium", "Avicia", "Empire of Sindria", "KongoBoys", "Paladins United", "Nerfuria", "Empire of Sindria", "Eden"]
+EXCEPTIONS = ["Titans Valor", "The Aquarium", "Avicia", "Empire of Sindria", "KongoBoys", "Paladins United", "Nerfuria", "Empire of Sindria", "Eden", "Idiot Co"]
 
 class GXPTrackerTask(Task):
     def __init__(self, start_after, sleep):
